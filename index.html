@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>FlatRadar BY</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+	:root {
+		--bg: var(--tg-theme-bg-color, #ffffff);
+		--bg2: var(--tg-theme-secondary-bg-color, #f1f1f4);
+		--text: var(--tg-theme-text-color, #111111);
+		--hint: var(--tg-theme-hint-color, #8a8a8e);
+		--link: var(--tg-theme-link-color, #2481cc);
+		--btn: var(--tg-theme-button-color, #2481cc);
+		--btn-text: var(--tg-theme-button-text-color, #ffffff);
+		--danger: var(--tg-theme-destructive-text-color, #e5484d);
+		--section: var(--tg-theme-section-bg-color, var(--bg));
+		--radius: 12px;
+	}
+	* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+	body {
+		margin: 0; padding: 12px 16px 96px;
+		background: var(--bg2); color: var(--text);
+		font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	}
+	h1 { font-size: 20px; margin: 4px 0 12px; }
+	.hint { color: var(--hint); font-size: 13px; }
+	.card { background: var(--section); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+	.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--hint); margin: 0 0 10px; font-weight: 600; }
+	.row { display: flex; gap: 8px; align-items: center; }
+	.row + .row { margin-top: 10px; }
+	.row > label { flex: 0 0 96px; color: var(--hint); font-size: 14px; }
+	input[type=text], input[type=number], select, textarea {
+		width: 100%; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent;
+		background: var(--bg2); color: var(--text); font: inherit; outline: none; -webkit-appearance: none; appearance: none;
+	}
+	input:focus, select:focus, textarea:focus { border-color: var(--btn); }
+	textarea { resize: vertical; min-height: 60px; }
+	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+	.chip {
+		padding: 8px 14px; border-radius: 999px; background: var(--bg2); color: var(--text);
+		border: none; font: inherit; cursor: pointer; user-select: none;
+	}
+	.chip.on { background: var(--btn); color: var(--btn-text); }
+	.toggle { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; cursor: pointer; }
+	.toggle + .toggle { border-top: 1px solid var(--bg2); }
+	.switch { width: 44px; height: 26px; border-radius: 13px; background: var(--hint); position: relative; flex: none; transition: background .15s; opacity: .5; }
+	.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+	.toggle.on .switch { background: var(--btn); opacity: 1; }
+	.toggle.on .switch::after { transform: translateX(18px); }
+	.filter-item { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+	.filter-item + .filter-item { border-top: 1px solid var(--bg2); margin-top: 10px; padding-top: 10px; }
+	.filter-item .name { font-weight: 600; }
+	.filter-item .sum { color: var(--hint); font-size: 13px; }
+	.filter-item .arrow { margin-left: auto; color: var(--hint); }
+	.btn { display: block; width: 100%; padding: 12px; border-radius: 10px; border: none; font: inherit; font-weight: 600; cursor: pointer; background: var(--btn); color: var(--btn-text); }
+	.btn.ghost { background: transparent; color: var(--danger); }
+	.err { color: var(--danger); font-size: 14px; margin: 8px 0; }
+	.hidden { display: none !important; }
+	.dash { color: var(--hint); }
+</style>
+</head>
+<body>
+
+<!-- Список фильтров -->
+<section id="list-view">
+	<h1>Мои фильтры</h1>
+	<div id="list-err" class="err hidden"></div>
+	<div class="card" id="filters"><span class="hint">Загрузка…</span></div>
+	<button class="btn" id="add-btn">➕ Новый фильтр</button>
+	<p class="hint" id="limit-hint" style="text-align:center"></p>
+</section>
+
+<!-- Редактирование -->
+<section id="edit-view" class="hidden">
+	<h1 id="edit-title">Новый фильтр</h1>
+
+	<div class="card">
+		<div class="row"><input type="text" id="name" maxlength="60" placeholder="Название, например «Двушка Уручье»"></div>
+		<div class="row"><select id="location"></select></div>
+	</div>
+
+	<div class="card">
+		<h2>Сайты</h2>
+		<div class="chips" data-multi="sources">
+			<button class="chip" data-v="kufar">Kufar</button>
+			<button class="chip" data-v="onliner">Onliner</button>
+			<button class="chip" data-v="realt">Realt</button>
+		</div>
+	</div>
+
+	<div class="card">
+		<h2>Комнаты</h2>
+		<div class="chips" data-multi="rooms">
+			<button class="chip" data-v="1">1</button>
+			<button class="chip" data-v="2">2</button>
+			<button class="chip" data-v="3">3</button>
+			<button class="chip" data-v="4">4+</button>
+		</div>
+	</div>
+
+	<div class="card">
+		<h2>Цена, $</h2>
+		<div class="row">
+			<input type="number" inputmode="numeric" id="priceMin" placeholder="от">
+			<span class="dash">—</span>
+			<input type="number" inputmode="numeric" id="priceMax" placeholder="до">
+		</div>
+		<div class="row"><label>За м² до</label><input type="number" inputmode="numeric" id="pricePerM2Max" placeholder="$/м²"></div>
+	</div>
+
+	<div class="card">
+		<h2>Площадь, м²</h2>
+		<div class="row">
+			<input type="number" inputmode="decimal" id="areaMin" placeholder="от">
+			<span class="dash">—</span>
+			<input type="number" inputmode="decimal" id="areaMax" placeholder="до">
+		</div>
+		<div class="row"><label>Кухня от</label><input type="number" inputmode="decimal" id="kitchenMin" placeholder="м²"></div>
+	</div>
+
+	<div class="card">
+		<h2>Этаж</h2>
+		<div class="row">
+			<input type="number" inputmode="numeric" id="floorMin" placeholder="от">
+			<span class="dash">—</span>
+			<input type="number" inputmode="numeric" id="floorMax" placeholder="до">
+		</div>
+		<div class="toggle" data-flag="notFirstFloor"><span>Не первый</span><span class="switch"></span></div>
+		<div class="toggle" data-flag="notLastFloor"><span>Не последний</span><span class="switch"></span></div>
+	</div>
+
+	<div class="card">
+		<h2>Дом</h2>
+		<div class="row">
+			<label>Год от</label><input type="number" inputmode="numeric" id="yearMin" placeholder="1960">
+			<input type="number" inputmode="numeric" id="yearMax" placeholder="до">
+		</div>
+		<div class="row" style="margin-top:12px"><div class="chips" data-multi="walls">
+			<button class="chip" data-v="panel">Панель</button>
+			<button class="chip" data-v="brick">Кирпич</button>
+			<button class="chip" data-v="monolith">Монолит</button>
+			<button class="chip" data-v="block">Блок</button>
+		</div></div>
+		<div class="row" style="margin-top:12px"><div class="chips" data-single="market">
+			<button class="chip" data-v="any">Любой рынок</button>
+			<button class="chip" data-v="resale">Вторичка</button>
+			<button class="chip" data-v="new">Новостройка</button>
+		</div></div>
+	</div>
+
+	<div class="card">
+		<h2>Дополнительно</h2>
+		<div class="toggle" data-flag="ownerOnly"><span>Только собственник</span><span class="switch"></span></div>
+		<div class="toggle" data-flag="notifyPriceDrop"><span>Сообщать о снижении цены</span><span class="switch"></span></div>
+		<div class="toggle" data-flag="compact"><span>Без фото (компактно)</span><span class="switch"></span></div>
+		<div class="row" style="margin-top:10px">
+			<textarea id="stopWords" placeholder="Стоп-слова через запятую: доля, аукцион, общежитие"></textarea>
+		</div>
+		<p class="hint">Не все сайты сообщают все параметры. Если поле у объявления не указано, оно не отсеивается.</p>
+	</div>
+
+	<div id="edit-err" class="err hidden"></div>
+	<button class="btn ghost hidden" id="delete-btn">Удалить фильтр</button>
+	<!-- Запасная кнопка, если открыто не в Telegram -->
+	<button class="btn hidden" id="save-fallback">Сохранить</button>
+</section>
+
+<script>
+const API = "https://omkozotiwxfompzeeeuc.supabase.co/functions/v1/api";
+const LOCATIONS = [
+	["minsk", "Минск"], ["minsk_area", "Минск + пригород"], ["brest", "Брест"], ["vitebsk", "Витебск"],
+	["gomel", "Гомель"], ["grodno", "Гродно"], ["mogilev", "Могилёв"], ["belarus", "Вся Беларусь"],
+];
+const NUM_FIELDS = ["priceMin", "priceMax", "pricePerM2Max", "areaMin", "areaMax", "kitchenMin", "floorMin", "floorMax", "yearMin", "yearMax"];
+const DEFAULTS = { name: "", sources: ["kufar", "onliner", "realt"], active: true, params: { location: "minsk", market: "any", notifyPriceDrop: true } };
+
+const tg = window.Telegram?.WebApp;
+const inTelegram = !!tg?.initData;
+const $ = (s) => document.querySelector(s);
+let filters = [], limit = 2, current = null;
+
+tg?.ready();
+tg?.expand();
+
+// ===== API =====
+async function api(action, payload = {}) {
+	const res = await fetch(API, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", "x-init-data": tg?.initData ?? "" },
+		body: JSON.stringify({ action, ...payload }),
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
+	return data;
+}
+
+function showError(el, msg) {
+	el.textContent = msg;
+	el.classList.toggle("hidden", !msg);
+}
+
+// ===== Список =====
+function summary(f) {
+	const p = f.params || {};
+	const loc = LOCATIONS.find(([k]) => k === p.location)?.[1];
+	const rooms = p.rooms?.length ? `${p.rooms.map((r) => (r >= 4 ? "4+" : r)).join(",")}-комн.` : null;
+	const price = p.priceMin || p.priceMax ? `${p.priceMin ? "от " + p.priceMin : ""} ${p.priceMax ? "до " + p.priceMax : ""} $`.trim() : null;
+	return [loc, rooms, price].filter(Boolean).join(" · ");
+}
+
+function renderList() {
+	const box = $("#filters");
+	box.innerHTML = "";
+	if (!filters.length) box.innerHTML = '<span class="hint">Фильтров пока нет — создайте первый.</span>';
+	for (const f of filters) {
+		const el = document.createElement("div");
+		el.className = "filter-item";
+		el.innerHTML = `<span>${f.active ? "🟢" : "⏸"}</span><div><div class="name"></div><div class="sum"></div></div><span class="arrow">›</span>`;
+		el.querySelector(".name").textContent = f.name;
+		el.querySelector(".sum").textContent = summary(f) + (f.last_error ? " · ⚠️ ошибка" : "");
+		el.onclick = () => openEdit(f);
+		box.appendChild(el);
+	}
+	$("#add-btn").classList.toggle("hidden", filters.length >= limit);
+	$("#limit-hint").textContent = `Фильтров: ${filters.length} из ${limit}`;
+}
+
+async function loadList() {
+	try {
+		const data = await api("list");
+		filters = data.filters;
+		limit = data.limit;
+		renderList();
+		showError($("#list-err"), "");
+	} catch (e) {
+		$("#filters").innerHTML = "";
+		showError($("#list-err"), inTelegram ? e.message : "Откройте эту страницу через бота в Telegram.");
+	}
+}
+
+// ===== Редактирование =====
+function setChips(name, values) {
+	document.querySelectorAll(`[data-multi="${name}"] .chip, [data-single="${name}"] .chip`).forEach((c) => {
+		c.classList.toggle("on", values.includes(c.dataset.v));
+	});
+}
+function getChips(name) {
+	return [...document.querySelectorAll(`[data-multi="${name}"] .chip.on, [data-single="${name}"] .chip.on`)].map((c) => c.dataset.v);
+}
+function setFlag(name, on) { document.querySelector(`[data-flag="${name}"]`).classList.toggle("on", !!on); }
+function getFlag(name) { return document.querySelector(`[data-flag="${name}"]`).classList.contains("on"); }
+
+function openEdit(f) {
+	current = f ? structuredClone(f) : structuredClone(DEFAULTS);
+	const p = current.params || {};
+	$("#edit-title").textContent = f ? "Фильтр" : "Новый фильтр";
+	$("#name").value = current.name || "";
+	$("#location").value = p.location || "minsk";
+	for (const k of NUM_FIELDS) $("#" + k).value = p[k] ?? "";
+	setChips("sources", current.sources || []);
+	setChips("rooms", (p.rooms || []).map(String));
+	setChips("walls", p.walls || []);
+	setChips("market", [p.market || "any"]);
+	for (const k of ["notFirstFloor", "notLastFloor", "ownerOnly", "compact"]) setFlag(k, p[k]);
+	setFlag("notifyPriceDrop", p.notifyPriceDrop !== false);
+	$("#stopWords").value = (p.stopWords || []).join(", ");
+	$("#delete-btn").classList.toggle("hidden", !f);
+	showError($("#edit-err"), "");
+
+	$("#list-view").classList.add("hidden");
+	$("#edit-view").classList.remove("hidden");
+	window.scrollTo(0, 0);
+	if (inTelegram) {
+		tg.BackButton.show();
+		tg.MainButton.setParams({ text: "Сохранить", is_visible: true, is_active: true });
+	} else {
+		$("#save-fallback").classList.remove("hidden");
+	}
+}
+
+function closeEdit() {
+	current = null;
+	$("#edit-view").classList.add("hidden");
+	$("#list-view").classList.remove("hidden");
+	tg?.BackButton.hide();
+	tg?.MainButton.hide();
+	loadList();
+}
+
+function collect() {
+	const params = {
+		location: $("#location").value,
+		rooms: getChips("rooms").map(Number),
+		walls: getChips("walls"),
+		market: getChips("market")[0] || "any",
+		stopWords: $("#stopWords").value.split(",").map((s) => s.trim()).filter(Boolean),
+	};
+	for (const k of NUM_FIELDS) params[k] = $("#" + k).value === "" ? null : Number($("#" + k).value);
+	for (const k of ["notFirstFloor", "notLastFloor", "ownerOnly", "notifyPriceDrop", "compact"]) params[k] = getFlag(k);
+
+	const locLabel = LOCATIONS.find(([k]) => k === params.location)?.[1];
+	const autoName = [locLabel, params.rooms.length ? params.rooms.map((r) => (r >= 4 ? "4+" : r)).join(",") + "к" : null,
+		params.priceMax ? `до ${params.priceMax}$` : null].filter(Boolean).join(" ");
+	return {
+		id: current.id,
+		name: $("#name").value.trim() || autoName,
+		sources: getChips("sources"),
+		active: current.active !== false,
+		params,
+	};
+}
+
+async function save() {
+	const filter = collect();
+	if (!filter.sources.length) return showError($("#edit-err"), "Выберите хотя бы один сайт");
+	if (filter.params.priceMin && filter.params.priceMax && filter.params.priceMin > filter.params.priceMax) {
+		return showError($("#edit-err"), "Минимальная цена больше максимальной");
+	}
+	tg?.MainButton.showProgress();
+	try {
+		await api("save", { filter });
+		tg?.HapticFeedback?.notificationOccurred("success");
+		closeEdit();
+	} catch (e) {
+		showError($("#edit-err"), e.message);
+		tg?.HapticFeedback?.notificationOccurred("error");
+	} finally {
+		tg?.MainButton.hideProgress();
+	}
+}
+
+async function remove() {
+	const ok = await new Promise((resolve) =>
+		tg ? tg.showConfirm(`Удалить фильтр «${current.name}»?`, resolve) : resolve(confirm("Удалить фильтр?")));
+	if (!ok) return;
+	try {
+		await api("delete", { id: current.id });
+		closeEdit();
+	} catch (e) {
+		showError($("#edit-err"), e.message);
+	}
+}
+
+// ===== Инициализация =====
+$("#location").innerHTML = LOCATIONS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+document.querySelectorAll("[data-multi] .chip").forEach((c) => c.onclick = () => { c.classList.toggle("on"); tg?.HapticFeedback?.selectionChanged(); });
+document.querySelectorAll("[data-single]").forEach((g) => g.querySelectorAll(".chip").forEach((c) => c.onclick = () => {
+	g.querySelectorAll(".chip").forEach((x) => x.classList.toggle("on", x === c));
+	tg?.HapticFeedback?.selectionChanged();
+}));
+document.querySelectorAll("[data-flag]").forEach((t) => t.onclick = () => t.classList.toggle("on"));
+$("#add-btn").onclick = () => openEdit(null);
+$("#delete-btn").onclick = remove;
+$("#save-fallback").onclick = save;
+tg?.MainButton.onClick(save);
+tg?.BackButton.onClick(closeEdit);
+
+loadList();
+</script>
+</body>
+</html>
