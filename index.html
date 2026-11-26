@@ -65,6 +65,22 @@
 	.btn { display: block; width: 100%; padding: 12px; border-radius: 10px; border: none; font: inherit; font-weight: 600; cursor: pointer; background: var(--btn); color: var(--btn-text); }
 	.btn.ghost { background: transparent; color: var(--danger); }
 	.err { color: var(--danger); font-size: 14px; margin: 8px 0; }
+	.btn.secondary { background: var(--section); color: var(--link); margin-bottom: 12px; }
+	.listing { display: flex; gap: 12px; background: var(--section); border-radius: var(--radius); padding: 10px; margin-bottom: 10px; cursor: pointer; }
+	.listing img, .listing .noimg { width: 104px; height: 80px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bg2); }
+	.listing .noimg { display: flex; align-items: center; justify-content: center; font-size: 28px; }
+	.listing .body { min-width: 0; flex: 1; }
+	.listing .price { font-weight: 700; font-size: 16px; }
+	.listing .ppm { color: var(--hint); font-weight: 400; font-size: 13px; }
+	.listing .meta { font-size: 14px; margin-top: 2px; }
+	.listing .addr { color: var(--hint); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+	.listing .foot { display: flex; gap: 6px; margin-top: 4px; font-size: 12px; color: var(--hint); }
+	.badge { padding: 1px 7px; border-radius: 6px; background: var(--bg2); font-size: 12px; color: var(--text); }
+	.badge.kufar { background: #2b6cff22; color: #2b6cff; }
+	.badge.onliner { background: #e6393922; color: #e63939; }
+	.badge.realt { background: #f5b80022; color: #c79100; }
+	.spinner { width: 28px; height: 28px; border: 3px solid var(--bg2); border-top-color: var(--btn); border-radius: 50%; animation: spin .8s linear infinite; margin: 40px auto; }
+	@keyframes spin { to { transform: rotate(360deg); } }
 	.hidden { display: none !important; }
 	.dash { color: var(--hint); }
 </style>
@@ -83,6 +99,8 @@
 <!-- Редактирование -->
 <section id="edit-view" class="hidden">
 	<h1 id="edit-title">Новый фильтр</h1>
+
+	<button class="btn secondary" id="preview-btn">📋 Посмотреть, что найдётся</button>
 
 	<div class="card">
 		<div class="row"><input type="text" id="name" maxlength="60" placeholder="Название, например «Двушка Уручье»"></div>
@@ -173,6 +191,14 @@
 	<button class="btn ghost hidden" id="delete-btn">Удалить фильтр</button>
 	<!-- Запасная кнопка, если открыто не в Telegram -->
 	<button class="btn hidden" id="save-fallback">Сохранить</button>
+</section>
+
+<!-- Объявления по фильтру -->
+<section id="results-view" class="hidden">
+	<h1 id="results-title">Объявления</h1>
+	<p class="hint" id="results-hint"></p>
+	<div id="results-err" class="err hidden"></div>
+	<div id="results"></div>
 </section>
 
 <script>
@@ -351,6 +377,104 @@ async function remove() {
 	}
 }
 
+// ===== Объявления =====
+let resultsBack = "list";
+const SOURCE_LABEL = { kufar: "Kufar", onliner: "Onliner", realt: "Realt" };
+const money = (n) => Math.round(n).toLocaleString("ru-RU");
+
+function ago(iso) {
+	if (!iso) return "";
+	const min = Math.round((Date.now() - new Date(iso)) / 60000);
+	if (min < 60) return `${Math.max(min, 1)} мин назад`;
+	if (min < 24 * 60) return `${Math.round(min / 60)} ч назад`;
+	if (min < 48 * 60) return "вчера";
+	return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
+
+function el(tag, cls, text) {
+	const e = document.createElement(tag);
+	if (cls) e.className = cls;
+	if (text != null) e.textContent = text;
+	return e;
+}
+
+function listingCard(l) {
+	const card = el("div", "listing");
+	if (l.photo) {
+		const img = el("img");
+		img.src = l.photo;
+		img.loading = "lazy";
+		img.onerror = () => img.replaceWith(el("div", "noimg", "🏠"));
+		card.appendChild(img);
+	} else {
+		card.appendChild(el("div", "noimg", "🏠"));
+	}
+	const body = el("div", "body");
+	const price = el("div", "price", l.priceUsd ? `${money(l.priceUsd)} $` : "Цена не указана");
+	if (l.priceUsd && l.area) price.appendChild(el("span", "ppm", `  ${money(l.priceUsd / l.area)} $/м²`));
+	body.appendChild(price);
+	const meta = [l.rooms ? `${l.rooms}-комн.` : null, l.area ? `${l.area} м²` : null,
+		l.floor ? `${l.floor}${l.floors ? "/" + l.floors : ""} эт.` : null, l.year ? `${l.year} г.` : null].filter(Boolean).join(" · ");
+	body.appendChild(el("div", "meta", meta));
+	body.appendChild(el("div", "addr", l.address || ""));
+	const foot = el("div", "foot");
+	foot.appendChild(el("span", `badge ${l.source}`, SOURCE_LABEL[l.source]));
+	if (l.isOwner === true) foot.appendChild(el("span", "badge", "собственник"));
+	if (l.isNew === true) foot.appendChild(el("span", "badge", "новостройка"));
+	foot.appendChild(el("span", null, ago(l.createdAt)));
+	body.appendChild(foot);
+	card.appendChild(body);
+	card.onclick = () => (tg?.openLink ? tg.openLink(l.url) : window.open(l.url, "_blank"));
+	return card;
+}
+
+async function openResults(query, title, back) {
+	resultsBack = back;
+	$("#list-view").classList.add("hidden");
+	$("#edit-view").classList.add("hidden");
+	$("#results-view").classList.remove("hidden");
+	$("#results-title").textContent = title || "Объявления";
+	$("#results-hint").textContent = "Ищу на Kufar, Onliner и Realt…";
+	$("#results").innerHTML = '<div class="spinner"></div>';
+	showError($("#results-err"), "");
+	window.scrollTo(0, 0);
+	tg?.MainButton.hide();
+	tg?.BackButton.show();
+	$("#save-fallback").classList.add("hidden");
+
+	try {
+		const data = await api("preview", query);
+		const box = $("#results");
+		box.innerHTML = "";
+		const n = data.listings.length;
+		$("#results-hint").textContent = n
+			? `Подходит сейчас: ${n}${n >= 150 ? "+" : ""}. Самые свежие сверху, нажмите на карточку, чтобы открыть объявление.`
+			: "Сейчас ничего не подходит — попробуйте ослабить условия.";
+		for (const l of data.listings) box.appendChild(listingCard(l));
+		if (data.errors?.length) showError($("#results-err"), "Не удалось опросить: " + data.errors.map((e) => e.split(":")[0]).join(", "));
+	} catch (e) {
+		$("#results").innerHTML = "";
+		$("#results-hint").textContent = "";
+		showError($("#results-err"), e.message);
+	}
+}
+
+function closeResults() {
+	$("#results-view").classList.add("hidden");
+	if (resultsBack === "edit") {
+		$("#edit-view").classList.remove("hidden");
+		if (inTelegram) tg.MainButton.show();
+		else $("#save-fallback").classList.remove("hidden");
+	} else {
+		closeEdit();
+	}
+}
+
+function onBack() {
+	if (!$("#results-view").classList.contains("hidden")) closeResults();
+	else closeEdit();
+}
+
 // ===== Инициализация =====
 $("#location").innerHTML = LOCATIONS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
 document.querySelectorAll("[data-multi] .chip").forEach((c) => c.onclick = () => { c.classList.toggle("on"); tg?.HapticFeedback?.selectionChanged(); });
@@ -362,10 +486,20 @@ document.querySelectorAll("[data-flag]").forEach((t) => t.onclick = () => t.clas
 $("#add-btn").onclick = () => openEdit(null);
 $("#delete-btn").onclick = remove;
 $("#save-fallback").onclick = save;
+$("#preview-btn").onclick = () => {
+	const f = collect();
+	openResults({ params: f.params, sources: f.sources }, f.name, "edit");
+};
 tg?.MainButton.onClick(save);
-tg?.BackButton.onClick(closeEdit);
+tg?.BackButton.onClick(onBack);
 
-loadList();
+const qp = new URLSearchParams(location.search);
+loadList().then(() => {
+	const f = filters.find((x) => x.id === qp.get("filter"));
+	if (!f) return;
+	if (qp.get("view") === "results") openResults({ id: f.id }, f.name, "list");
+	else openEdit(f);
+});
 </script>
 </body>
 </html>
