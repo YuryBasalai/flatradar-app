@@ -74,10 +74,15 @@
 	.btn.ghost { background: transparent; color: var(--danger); }
 	.err { color: var(--danger); font-size: 14px; margin: 8px 0; }
 	.btn.secondary { background: var(--section); color: var(--link); margin-bottom: 12px; }
-	.listing { display: flex; gap: 12px; background: var(--section); border-radius: var(--radius); padding: 10px; margin-bottom: 10px; cursor: pointer; }
+	.listing { position: relative; display: flex; gap: 12px; background: var(--section); border-radius: var(--radius); padding: 10px; margin-bottom: 10px; cursor: pointer; }
 	.listing img, .listing .noimg { width: 104px; height: 80px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bg2); }
 	.listing .noimg { display: flex; align-items: center; justify-content: center; font-size: 28px; }
-	.listing .body { min-width: 0; flex: 1; }
+	.listing .body { min-width: 0; flex: 1; padding-right: 30px; }
+	.share { position: absolute; top: 6px; right: 6px; width: 34px; height: 34px; border-radius: 50%; border: none;
+		background: transparent; color: var(--link); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+	.share:active { background: var(--bg2); }
+	.share:disabled { opacity: .4; }
+	.share svg { width: 20px; height: 20px; }
 	.listing .price { font-weight: 700; font-size: 16px; }
 	.listing .ppm { color: var(--hint); font-weight: 400; font-size: 13px; }
 	.listing .meta { font-size: 14px; margin-top: 2px; }
@@ -512,7 +517,30 @@ function listingCard(l) {
 	body.appendChild(foot);
 	card.appendChild(body);
 	card.onclick = () => (tg?.openLink ? tg.openLink(l.url) : window.open(l.url, "_blank"));
+
+	const share = el("button", "share");
+	share.title = "Переслать";
+	share.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg>';
+	share.onclick = (e) => { e.stopPropagation(); shareListing(l, share); };
+	card.appendChild(share);
 	return card;
+}
+
+// Переслать объявление: готовая карточка с фото через shareMessage, иначе — обычная ссылка
+async function shareListing(l, btn) {
+	btn.disabled = true;
+	try {
+		const { id } = await api("share", { listing: l });
+		if (!tg?.shareMessage) throw new Error("shareMessage не поддерживается");
+		tg.shareMessage(id, () => {});
+	} catch {
+		const text = [l.priceUsd ? `${money(l.priceUsd)} $` : null, l.rooms ? `${l.rooms}-комн.` : null,
+			l.area ? `${l.area} м²` : null, l.address].filter(Boolean).join(" · ");
+		const url = `https://t.me/share/url?url=${encodeURIComponent(l.url)}&text=${encodeURIComponent(text)}`;
+		tg?.openTelegramLink ? tg.openTelegramLink(url) : window.open(url, "_blank");
+	} finally {
+		btn.disabled = false;
+	}
 }
 
 async function openResults(query, title, back) {
