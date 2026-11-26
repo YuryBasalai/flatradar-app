@@ -418,9 +418,18 @@ function listingCard(l) {
 	body.appendChild(el("div", "meta", meta));
 	body.appendChild(el("div", "addr", l.address || ""));
 	const foot = el("div", "foot");
-	foot.appendChild(el("span", `badge ${l.source}`, SOURCE_LABEL[l.source]));
+	// Метки сайтов: основной + где ещё выложена эта квартира (нажатие открывает именно этот сайт)
+	const links = [{ source: l.source, url: l.url }];
+	for (const d of l.dups || []) if (!links.some((x) => x.source === d.source)) links.push(d);
+	for (const { source, url } of links) {
+		const b = el("span", `badge ${source}`, SOURCE_LABEL[source]);
+		b.onclick = (e) => { e.stopPropagation(); tg?.openLink ? tg.openLink(url) : window.open(url, "_blank"); };
+		foot.appendChild(b);
+	}
 	if (l.isOwner === true) foot.appendChild(el("span", "badge", "собственник"));
 	if (l.isNew === true) foot.appendChild(el("span", "badge", "новостройка"));
+	const similar = (l.dups || []).length + 1 - links.length;
+	if (similar > 0) foot.appendChild(el("span", "badge", `🏘 +${similar} похож.`));
 	foot.appendChild(el("span", null, ago(l.createdAt)));
 	body.appendChild(foot);
 	card.appendChild(body);
