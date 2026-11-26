@@ -57,11 +57,19 @@
 	.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
 	.toggle.on .switch { background: var(--btn); opacity: 1; }
 	.toggle.on .switch::after { transform: translateX(18px); }
+	.filter + .filter { border-top: 1px solid var(--bg2); margin-top: 10px; padding-top: 10px; }
 	.filter-item { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-	.filter-item + .filter-item { border-top: 1px solid var(--bg2); margin-top: 10px; padding-top: 10px; }
 	.filter-item .name { font-weight: 600; }
 	.filter-item .sum { color: var(--hint); font-size: 13px; }
-	.filter-item .arrow { margin-left: auto; color: var(--hint); }
+	.filter-item .count { margin-left: auto; color: var(--hint); font-size: 14px; white-space: nowrap; }
+	.filter-item .arrow { color: var(--hint); transition: transform .15s; }
+	.filter.open .arrow { transform: rotate(90deg); }
+	.actions { display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+	.filter.open .actions { display: grid; }
+	.actions button { padding: 10px; border-radius: 10px; border: none; background: var(--bg2); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+	.actions .wide { grid-column: 1 / -1; background: var(--btn); color: var(--btn-text); font-weight: 600; }
+	.actions .danger { color: var(--danger); }
+	.actions button:disabled { opacity: .6; }
 	.btn { display: block; width: 100%; padding: 12px; border-radius: 10px; border: none; font: inherit; font-weight: 600; cursor: pointer; background: var(--btn); color: var(--btn-text); }
 	.btn.ghost { background: transparent; color: var(--danger); }
 	.err { color: var(--danger); font-size: 14px; margin: 8px 0; }
@@ -240,25 +248,95 @@ function summary(f) {
 	const p = f.params || {};
 	const loc = LOCATIONS.find(([k]) => k === p.location)?.[1];
 	const rooms = p.rooms?.length ? `${p.rooms.map((r) => (r >= 4 ? "4+" : r)).join(",")}-комн.` : null;
-	const price = p.priceMin || p.priceMax ? `${p.priceMin ? "от " + p.priceMin : ""} ${p.priceMax ? "до " + p.priceMax : ""} $`.trim() : null;
+	const k = (n) => Number(n).toLocaleString("ru-RU");
+	const price = p.priceMin || p.priceMax ? `${p.priceMin ? "от " + k(p.priceMin) : ""} ${p.priceMax ? "до " + k(p.priceMax) : ""} $`.trim() : null;
 	return [loc, rooms, price].filter(Boolean).join(" · ");
 }
+
+let expandedId = null;
 
 function renderList() {
 	const box = $("#filters");
 	box.innerHTML = "";
 	if (!filters.length) box.innerHTML = '<span class="hint">Фильтров пока нет — создайте первый.</span>';
-	for (const f of filters) {
-		const el = document.createElement("div");
-		el.className = "filter-item";
-		el.innerHTML = `<span>${f.active ? "🟢" : "⏸"}</span><div><div class="name"></div><div class="sum"></div></div><span class="arrow">›</span>`;
-		el.querySelector(".name").textContent = f.name;
-		el.querySelector(".sum").textContent = summary(f) + (f.last_error ? " · ⚠️ ошибка" : "");
-		el.onclick = () => openEdit(f);
-		box.appendChild(el);
-	}
+	for (const f of filters) box.appendChild(filterRow(f));
 	$("#add-btn").classList.toggle("hidden", filters.length >= limit);
 	$("#limit-hint").textContent = `Фильтров: ${filters.length} из ${limit}`;
+}
+
+// Строка фильтра; по нажатию раскрываются действия
+function filterRow(f) {
+	const wrap = el("div", "filter" + (f.id === expandedId ? " open" : ""));
+	const row = el("div", "filter-item");
+	row.appendChild(el("span", null, f.active ? "🟢" : "⏸"));
+	const info = el("div");
+	info.appendChild(el("div", "name", f.name));
+	info.appendChild(el("div", "sum", summary(f) + (f.last_error ? " · ⚠️ ошибка" : "")));
+	row.appendChild(info);
+	row.appendChild(el("span", "count", !f.active ? "" : f.initialized && f.matched_count != null ? String(f.matched_count) : "…"));
+	row.appendChild(el("span", "arrow", "›"));
+	row.onclick = () => {
+		expandedId = expandedId === f.id ? null : f.id;
+		tg?.HapticFeedback?.selectionChanged();
+		renderList();
+	};
+	wrap.appendChild(row);
+
+	const actions = el("div", "actions");
+	const btn = (text, cls, onClick) => {
+		const b = el("button", cls, text);
+		b.onclick = (e) => { e.stopPropagation(); onClick(b); };
+		actions.appendChild(b);
+		return b;
+	};
+	const n = f.initialized && f.matched_count != null ? ` (${f.matched_count})` : "";
+	btn(`📋 Объявления${n}`, "wide", () => openResults({ id: f.id }, f.name, "list"));
+	btn(f.active ? "⏸ Пауза" : "▶️ Включить", null, (b) => toggleFilter(f, b));
+	btn("🔄 Проверить", null, (b) => checkFilter(f, b));
+	btn("✏️ Изменить", null, () => openEdit(f));
+	btn("🗑 Удалить", "danger", () => deleteFilter(f));
+	wrap.appendChild(actions);
+	return wrap;
+}
+
+async function toggleFilter(f, b) {
+	b.disabled = true;
+	try {
+		const { active } = await api("toggle", { id: f.id });
+		f.active = active;
+		if (active) f.initialized = false; // заново посчитает подходящие
+		tg?.HapticFeedback?.notificationOccurred("success");
+		renderList();
+	} catch (e) {
+		showError($("#list-err"), e.message);
+		b.disabled = false;
+	}
+}
+
+async function checkFilter(f, b) {
+	b.disabled = true;
+	try {
+		await api("check", { id: f.id });
+		b.textContent = "✓ Проверяю…";
+		tg?.HapticFeedback?.notificationOccurred("success");
+		setTimeout(() => { b.textContent = "🔄 Проверить"; b.disabled = false; }, 5000);
+	} catch (e) {
+		showError($("#list-err"), e.message);
+		b.disabled = false;
+	}
+}
+
+async function deleteFilter(f) {
+	const ok = await new Promise((resolve) =>
+		tg?.showConfirm ? tg.showConfirm(`Удалить фильтр «${f.name}»?`, resolve) : resolve(confirm("Удалить фильтр?")));
+	if (!ok) return;
+	try {
+		await api("delete", { id: f.id });
+		expandedId = null;
+		loadList();
+	} catch (e) {
+		showError($("#list-err"), e.message);
+	}
 }
 
 async function loadList() {
